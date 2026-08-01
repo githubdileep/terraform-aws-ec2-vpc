@@ -35,3 +35,13 @@ resource "aws_instance" "private" {
 
   tags = merge(local.tags, { Name = "${var.project_name}-private-ec2" })
 }
+
+resource "aws_ec2_instance_state" "public" {
+  instance_id = aws_instance.public.id
+  state       = var.instance_state
+}
+
+resource "aws_ec2_instance_state" "private" {
+  instance_id = aws_instance.private.id
+  state       = var.instance_state
+}
