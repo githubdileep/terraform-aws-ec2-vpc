@@ -1,4 +1,4 @@
-# AWS region for all resources in this stack (us-east-1).
+# AWS region for all resources in this stack (us-east-1). CI verification trigger.
 variable "aws_region" {
   description = "AWS region to deploy into"
   type        = string
