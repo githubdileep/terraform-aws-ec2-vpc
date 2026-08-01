@@ -61,5 +61,5 @@ variable "ssh_ingress_cidr" {
 variable "enable_nat_gateway" {
   description = "Whether to create a NAT Gateway for private subnet outbound internet access (costs money, disable to save cost)"
   type        = bool
-  default     = true
+  default     = false
 }
