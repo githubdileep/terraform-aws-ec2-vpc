@@ -79,14 +79,11 @@ jobs:
       - name: Terraform Plan
         id: plan
         env:
-          MY_IP_CIDR: ${{ secrets.MY_IP_CIDR }}
           KEY_PAIR_NAME: ${{ secrets.KEY_PAIR_NAME }}
         run: |
-          my_ip_cidr="$(printf '%s' "$MY_IP_CIDR" | tr -d '\r\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
           key_pair_name="$(printf '%s' "$KEY_PAIR_NAME" | tr -d '\r\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
 
           terraform plan -no-color -out=tfplan \
-            -var="my_ip_cidr=$my_ip_cidr" \
             -var="key_pair_name=$key_pair_name"
         continue-on-error: true
 
@@ -113,12 +110,9 @@ jobs:
       - name: Terraform Destroy
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
         env:
-          MY_IP_CIDR: ${{ secrets.MY_IP_CIDR }}
           KEY_PAIR_NAME: ${{ secrets.KEY_PAIR_NAME }}
         run: |
-          my_ip_cidr="$(printf '%s' "$MY_IP_CIDR" | tr -d '\r\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
           key_pair_name="$(printf '%s' "$KEY_PAIR_NAME" | tr -d '\r\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
 
           terraform destroy -auto-approve \
-            -var="my_ip_cidr=$my_ip_cidr" \
             -var="key_pair_name=$key_pair_name"

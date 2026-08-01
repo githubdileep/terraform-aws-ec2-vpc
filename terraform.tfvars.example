@@ -6,8 +6,11 @@ public_subnet_cidrs   = ["10.0.1.0/24", "10.0.2.0/24"]
 private_subnet_cidrs  = ["10.0.11.0/24", "10.0.12.0/24"]
 availability_zones    = ["us-east-1a", "us-east-1b"]
 
-instance_type   = "t3.micro"
-key_pair_name   = ""        # existing EC2 key pair name, optional
-my_ip_cidr      = "1.2.3.4/32"  # replace with your public IP/32
+instance_type = "t3.micro"
+key_pair_name = "" # existing EC2 key pair name, optional
+
+# SSH ingress. "0.0.0.0/0" allows SSH from anywhere (convenient, but exposes
+# port 22 to the internet). Use "<your.ip>/32" to lock it to a single address.
+ssh_ingress_cidr = "0.0.0.0/0"
 
 enable_nat_gateway = true

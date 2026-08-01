@@ -47,9 +47,15 @@ variable "key_pair_name" {
   default     = ""
 }
 
-variable "my_ip_cidr" {
-  description = "Your IP in CIDR form (e.g. 1.2.3.4/32) allowed to SSH into the public instance"
+variable "ssh_ingress_cidr" {
+  description = "CIDR allowed to SSH into the public instance. Use x.x.x.x/32 to restrict to a single IP, or 0.0.0.0/0 to allow from anywhere (exposes port 22 to the internet)."
   type        = string
+  default     = "0.0.0.0/0"
+
+  validation {
+    condition     = can(cidrhost(var.ssh_ingress_cidr, 0))
+    error_message = "ssh_ingress_cidr must be a valid CIDR block, e.g. 1.2.3.4/32 or 0.0.0.0/0."
+  }
 }
 
 variable "enable_nat_gateway" {

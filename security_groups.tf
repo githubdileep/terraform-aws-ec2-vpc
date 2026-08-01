@@ -2,15 +2,15 @@
 # (adjust to your actual use case, e.g. remove HTTP if not running a web server).
 resource "aws_security_group" "public" {
   name        = "${var.project_name}-public-sg"
-  description = "Public instance SG: SSH from admin IP, HTTP from internet"
+  description = "Public instance SG: SSH from configured CIDR, HTTP from internet"
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description = "SSH from admin IP"
+    description = "SSH from allowed CIDR"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = [var.my_ip_cidr]
+    cidr_blocks = [var.ssh_ingress_cidr]
   }
 
   ingress {
