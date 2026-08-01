@@ -1,13 +1,13 @@
 name: Terraform VPC + EC2
 
 on:
-  push:
+  pull_request:
     branches: [main]
     paths:
       - "**.tf"
       - ".github/workflows/terraform.yml"
       - "iam/**.json"
-  pull_request:
+  push:
     branches: [main]
     paths:
       - "**.tf"
@@ -26,7 +26,7 @@ on:
           - destroy
 
 permissions:
-  id-token: write   # required for OIDC auth to AWS
+  id-token: write # required for OIDC auth to AWS
   contents: read
   pull-requests: write
 
@@ -35,10 +35,15 @@ env:
   AWS_REGION: "us-east-1"
 
 jobs:
-  terraform:
-    name: Terraform
+  # ---------------------------------------------------------------------------
+  # PLAN: runs on PRs, on pushes to main, and on manual plan/apply dispatch.
+  # Never modifies infrastructure. Uploads the plan so APPLY runs exactly what
+  # was reviewed and approved.
+  # ---------------------------------------------------------------------------
+  plan:
+    name: Plan
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.action != 'destroy'
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -84,35 +89,138 @@ jobs:
           key_pair_name="$(printf '%s' "$KEY_PAIR_NAME" | tr -d '\r\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
 
           terraform plan -no-color -out=tfplan \
-            -var="key_pair_name=$key_pair_name"
-        continue-on-error: true
+            -var="key_pair_name=$key_pair_name" | tee plan.txt
 
-      - name: Comment Plan on PR
+          # Compact summary for the PR comment
+          grep -E '^(Plan:|No changes\.)' plan.txt > plan_summary.txt || true
+
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: |
+            tfplan
+            plan.txt
+          retention-days: 1
+
+      - name: Comment plan on PR
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
-            github.rest.issues.createComment({
+            const fs = require('fs');
+            let summary = 'see run logs';
+            try {
+              summary = fs.readFileSync('plan_summary.txt', 'utf8').trim() || 'No plan summary produced.';
+            } catch (e) {}
+            await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: "Terraform plan exit code: `${{ steps.plan.outcome }}`. Check the Actions run for full plan output."
-            })
+              body: [
+                '### Terraform Plan',
+                '```',
+                summary,
+                '```',
+                '',
+                `Full plan output: [run #${context.runNumber}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+                '',
+                'Merging this PR will require manual approval in the `production` environment before anything is applied.'
+              ].join('\n')
+            });
 
-      - name: Fail if plan failed
-        if: steps.plan.outcome == 'failure'
-        run: exit 1
+  # ---------------------------------------------------------------------------
+  # APPLY: only after PLAN succeeds, and only on main / manual apply.
+  # The `environment: production` key is what pauses for human approval,
+  # provided that environment has required reviewers configured in repo settings.
+  # ---------------------------------------------------------------------------
+  apply:
+    name: Apply
+    needs: plan
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        env:
+          TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+          TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
+        run: |
+          bucket="$(printf '%s' "$TF_STATE_BUCKET" | tr -d '\r\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+          lock_table="$(printf '%s' "$TF_LOCK_TABLE" | tr -d '\r\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+
+          terraform init \
+            -backend-config="bucket=$bucket" \
+            -backend-config="key=terraform-aws-ec2-vpc/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=$lock_table"
+
+      - name: Download plan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
 
       - name: Terraform Apply
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && (github.event.inputs.action == 'apply' || github.event_name == 'push')
-        run: terraform apply -auto-approve tfplan
+        run: terraform apply -no-color -auto-approve tfplan
+
+  # ---------------------------------------------------------------------------
+  # DESTROY: manual dispatch only, also gated behind the production environment.
+  # ---------------------------------------------------------------------------
+  destroy:
+    name: Destroy
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        env:
+          TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+          TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
+        run: |
+          bucket="$(printf '%s' "$TF_STATE_BUCKET" | tr -d '\r\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+          lock_table="$(printf '%s' "$TF_LOCK_TABLE" | tr -d '\r\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+
+          terraform init \
+            -backend-config="bucket=$bucket" \
+            -backend-config="key=terraform-aws-ec2-vpc/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=$lock_table"
 
       - name: Terraform Destroy
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
         env:
           KEY_PAIR_NAME: ${{ secrets.KEY_PAIR_NAME }}
         run: |
           key_pair_name="$(printf '%s' "$KEY_PAIR_NAME" | tr -d '\r\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
 
-          terraform destroy -auto-approve \
+          terraform destroy -no-color -auto-approve \
             -var="key_pair_name=$key_pair_name"
