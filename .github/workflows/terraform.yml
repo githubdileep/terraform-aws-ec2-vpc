@@ -6,11 +6,13 @@ on:
     paths:
       - "**.tf"
       - ".github/workflows/terraform.yml"
+      - "iam/**.json"
   pull_request:
     branches: [main]
     paths:
       - "**.tf"
       - ".github/workflows/terraform.yml"
+      - "iam/**.json"
   workflow_dispatch:
     inputs:
       action:
