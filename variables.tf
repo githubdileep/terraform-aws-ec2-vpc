@@ -1,3 +1,4 @@
+# AWS region for all resources in this stack.
 variable "aws_region" {
   description = "AWS region to deploy into"
   type        = string
