@@ -67,7 +67,7 @@ variable "enable_nat_gateway" {
 variable "instance_state" {
   description = "Desired run state for both EC2 instances: running or stopped"
   type        = string
-  default     = "running"
+  default     = "stopped"
 
   validation {
     condition     = contains(["running", "stopped"], var.instance_state)
